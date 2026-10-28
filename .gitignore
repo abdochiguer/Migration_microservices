@@ -46,3 +46,13 @@ out/
 _site/
 *.css
 !petclinic.css
+
+### Secrets & Local Credentials ###
+*.env
+*.env.*
+*.local.yml
+*.local.yaml
+*secret*.yml
+*secret*.yaml
+!*.example.yml
+!*.example.yaml

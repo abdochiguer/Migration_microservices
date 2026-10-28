@@ -13,7 +13,16 @@ data:
       tag kubernetes.*
       read_from_head true
       <parse>
-        @type cri
+        @type multi_format
+        <pattern>
+          format json
+          time_key time
+          time_format %Y-%m-%dT%H:%M:%S.%NZ
+        </pattern>
+        <pattern>
+          format /^(?<time>.+) (?<stream>stdout|stderr) [^ ]* (?<log>.*)$/
+          time_format %Y-%m-%dT%H:%M:%S.%N%:z
+        </pattern>
       </parse>
     </source>
 
@@ -107,6 +116,9 @@ spec:
             - name: container-logs
               mountPath: /var/log
               readOnly: true
+            - name: docker-containers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
             - name: fluentd-state
               mountPath: /fluentd/state
             - name: fluentd-config
@@ -118,6 +130,10 @@ spec:
           hostPath:
             path: /var/log
             type: Directory
+        - name: docker-containers
+          hostPath:
+            path: /var/lib/docker/containers
+            type: DirectoryOrCreate
         - name: fluentd-state
           emptyDir: {}
         - name: fluentd-config

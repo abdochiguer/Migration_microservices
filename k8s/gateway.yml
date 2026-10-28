@@ -8,6 +8,27 @@ data:
     events {}
 
     http {
+      upstream monolith_backend {
+        server petclinic.default.svc.cluster.local:80 max_fails=3 fail_timeout=10s;
+      }
+
+      upstream vet_service_backend {
+        server vet-service.microservices.svc.cluster.local:8080 max_fails=3 fail_timeout=10s;
+      }
+
+      # Répartition de trafic Canary (par défaut 0% vers le microservice, activable à 10%, 50%, 100%)
+      split_clients "${request_id}" $canary_upstream {
+        0%      vet_service_backend;
+        *       monolith_backend;
+      }
+
+      # Priorité au header X-Canary pour les tests internes sans impacter les utilisateurs réels
+      map $http_x_canary $chosen_vet_upstream {
+        "true"  vet_service_backend;
+        "false" monolith_backend;
+        default $canary_upstream;
+      }
+
       server {
         listen 8080;
 
@@ -16,6 +37,21 @@ data:
           add_header Content-Type text/plain;
         }
 
+        # Route Strangler Fig pour le domaine des vétérinaires
+        location /vets {
+          proxy_set_header Host $host;
+          proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+          proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Request-ID $request_id;
+          proxy_connect_timeout 2s;
+          proxy_read_timeout 10s;
+
+          # Sécurité Zero-Downtime : Si le microservice échoue (502, 503, 504), bascule transparente vers le monolithe
+          proxy_next_upstream error timeout http_502 http_503 http_504;
+          proxy_pass http://$chosen_vet_upstream;
+        }
+
+        # Reste de l'application envoyé vers le monolithe
         location / {
           proxy_set_header Host $host;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -23,10 +59,11 @@ data:
           proxy_set_header X-Request-ID $request_id;
           proxy_connect_timeout 2s;
           proxy_read_timeout 30s;
-          proxy_pass http://petclinic.default.svc.cluster.local:80;
+          proxy_pass http://monolith_backend;
         }
       }
     }
+
 
 ---
 apiVersion: v1

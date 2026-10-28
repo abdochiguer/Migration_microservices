@@ -1,0 +1,58 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: migrate-historical-vets
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 600
+  template:
+    metadata:
+      labels:
+        app: migrate-historical-vets
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: migrator
+          image: postgres:16-alpine
+          env:
+            - name: PGPASSWORD_SOURCE
+              valueFrom:
+                secretKeyRef:
+                  name: demo-db
+                  key: password
+            - name: PGPASSWORD_TARGET
+              value: "vetpass"
+
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "=== Démarrage de la migration des données historiques de VET ==="
+              
+              SOURCE_HOST="demo-db.default.svc.cluster.local"
+              TARGET_HOST="vet-db.microservices.svc.cluster.local"
+
+              echo "[1/3] Test de connexion à la base source ($SOURCE_HOST)..."
+              PGPASSWORD="$PGPASSWORD_SOURCE" pg_isready -h "$SOURCE_HOST" -p 5432 -U user -d petclinic
+
+              echo "[2/3] Test de connexion à la base cible ($TARGET_HOST)..."
+              PGPASSWORD="$PGPASSWORD_TARGET" pg_isready -h "$TARGET_HOST" -p 5432 -U vetuser -d vetdb
+
+              echo "[3/3] Extraction et migration des tables (vets, specialties, vet_specialties)..."
+              PGPASSWORD="$PGPASSWORD_SOURCE" pg_dump \
+                -h "$SOURCE_HOST" \
+                -U user \
+                -d petclinic \
+                --data-only \
+                --inserts \
+                -t vets -t specialties -t vet_specialties \
+                | PGPASSWORD="$PGPASSWORD_TARGET" psql \
+                -h "$TARGET_HOST" \
+                -U vetuser \
+                -d vetdb
+
+              echo "=== Migration des données historiques terminée avec succès ! ==="
+              
+              # Vérification du nombre d'enregistrements migrés
+              PGPASSWORD="$PGPASSWORD_TARGET" psql -h "$TARGET_HOST" -U vetuser -d vetdb -c "SELECT count(*) AS total_vets FROM vets;"
