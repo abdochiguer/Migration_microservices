@@ -16,10 +16,9 @@ data:
         server vet-service.microservices.svc.cluster.local:8080 max_fails=3 fail_timeout=10s;
       }
 
-      # Répartition de trafic Canary (par défaut 0% vers le microservice, activable à 10%, 50%, 100%)
+      # Répartition de trafic Canary (par défaut 100% vers le monolithe, activable à 10%, 50%, etc.)
       split_clients "${request_id}" $canary_upstream {
-        0%      vet_service_backend;
-        *       monolith_backend;
+        100%    monolith_backend;
       }
 
       # Priorité au header X-Canary pour les tests internes sans impacter les utilisateurs réels
@@ -39,27 +38,36 @@ data:
 
         # Route Strangler Fig pour le domaine des vétérinaires
         location /vets {
-          proxy_set_header Host $host;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-Port $server_port;
           proxy_set_header X-Request-ID $request_id;
-          proxy_connect_timeout 2s;
-          proxy_read_timeout 10s;
+          proxy_connect_timeout 10s;
+          proxy_read_timeout 30s;
+          proxy_send_timeout 30s;
 
           # Sécurité Zero-Downtime : Si le microservice échoue (502, 503, 504), bascule transparente vers le monolithe
           proxy_next_upstream error timeout http_502 http_503 http_504;
           proxy_pass http://$chosen_vet_upstream;
+          proxy_redirect off;
         }
 
         # Reste de l'application envoyé vers le monolithe
         location / {
-          proxy_set_header Host $host;
+          proxy_set_header Host $http_host;
+          proxy_set_header X-Real-IP $remote_addr;
           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
           proxy_set_header X-Forwarded-Proto $scheme;
+          proxy_set_header X-Forwarded-Port $server_port;
           proxy_set_header X-Request-ID $request_id;
-          proxy_connect_timeout 2s;
-          proxy_read_timeout 30s;
+          proxy_connect_timeout 10s;
+          proxy_read_timeout 60s;
+          proxy_send_timeout 60s;
           proxy_pass http://monolith_backend;
+          proxy_redirect default;
+          proxy_redirect http://monolith_backend/ /;
         }
       }
     }
@@ -107,10 +115,15 @@ spec:
             httpGet:
               path: /healthz
               port: http
+            timeoutSeconds: 5
+            periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
+            timeoutSeconds: 5
+            periodSeconds: 15
+            failureThreshold: 5
           volumeMounts:
             - name: nginx-config
               mountPath: /etc/nginx/nginx.conf

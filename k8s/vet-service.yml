@@ -127,7 +127,7 @@ metadata:
   labels:
     app: vet-service
 spec:
-  replicas: 2
+  replicas: 1
   selector:
     matchLabels:
       app: vet-service
@@ -158,26 +158,29 @@ spec:
                   key: password
           resources:
             requests:
-              cpu: 100m
-              memory: 256Mi
-            limits:
-              cpu: 500m
+              cpu: 250m
               memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
           startupProbe:
             httpGet:
               path: /actuator/health/liveness
               port: http
-            failureThreshold: 30
-            periodSeconds: 5
+            failureThreshold: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
           livenessProbe:
             httpGet:
               path: /actuator/health/liveness
               port: http
-            periodSeconds: 10
-            failureThreshold: 3
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
           readinessProbe:
             httpGet:
               path: /actuator/health/readiness
               port: http
-            periodSeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
             failureThreshold: 3
